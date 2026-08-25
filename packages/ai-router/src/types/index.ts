@@ -6,6 +6,8 @@ export type ReasoningLevel = "low" | "medium" | "high" | "xhigh";
 
 export type RouteTask = string;
 
+export type DataClassification = "public" | "sensitive";
+
 export interface ModelCapabilitySet {
   tool_calling: boolean;
   structured_output: boolean;
@@ -14,32 +16,52 @@ export interface ModelCapabilitySet {
 }
 
 export interface Pricing {
-  prompt: number;
-  completion: number;
+  prompt: number | null;
+  completion: number | null;
   currency?: string;
 }
+
+export type CatalogSource = "static_fallback" | "openrouter_live";
+export type ScoreSource = "curated" | "live" | "unknown";
 
 export interface CatalogModel {
   id: string;
   author: string;
   provider: ProviderType | string;
   providerName: string;
-  input_price: number;
-  output_price: number;
+  transport_provider: ProviderType | string;
+  upstream_provider_if_known: string | null;
+  input_price: number | null;
+  output_price: number | null;
   pricing: Pricing;
   context_length: number;
   supports: ModelCapabilitySet;
-  intelligence_score: number;
-  coding_score: number;
-  agentic_score: number;
-  vision_score: number;
-  tool_success_rate: number;
-  health: number;
-  latency_ms: number;
+  intelligence_score: number | null;
+  coding_score: number | null;
+  agentic_score: number | null;
+  vision_score: number | null;
+  tool_success_rate: number | null;
+  health: number | null;
+  latency_ms: number | null;
   free: boolean;
   retention_enabled: boolean;
   stealth: boolean;
   is_live: boolean;
+  score_source: ScoreSource;
+  catalog_source: CatalogSource;
+  prompt_price: number | null;
+  completion_price: number | null;
+}
+
+export interface CatalogFetchMeta {
+  source: CatalogSource;
+  live_request_succeeded: boolean;
+  warning: string | null;
+}
+
+export interface CatalogFetchResult {
+  catalog: CatalogModel[];
+  meta: CatalogFetchMeta;
 }
 
 export interface RouteDefinition {
@@ -139,6 +161,7 @@ export interface ModelCandidate {
   level: WorkerLevel;
   isFree: boolean;
   score: number;
+  score_source: ScoreSource;
   catalogModel?: CatalogModel;
 }
 
@@ -148,6 +171,12 @@ export interface DispatchDecision {
   requested_model: string;
   resolved_model: string;
   provider: ProviderType | string;
+  transport_provider: ProviderType | string;
+  author: string;
+  upstream_provider_if_known: string | null;
+  catalog_source: CatalogSource;
+  score_source: ScoreSource;
+  execution_verified: boolean;
   is_byok: boolean;
   ranking_snapshot: Array<{ model: string; score: number }>; 
   latency_ms: number;

@@ -2,20 +2,28 @@ import { cwd } from "node:process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { fetchLiveCatalog, isActuallyFreeModel, resolveCatalogByModel, getProviderName } from "../catalog/index.js";
+import { fetchCatalog, filterForbiddenAuthors, isActuallyFreeModel, resolveCatalogByModel, isForbiddenAuthor, isForbiddenModelId } from "../catalog/index.js";
 import { createHandoffCheckpoint, canReplaceWorker, validateCheckpointShape } from "../checkpoint/index.js";
 import { HealthMonitor } from "../health/index.js";
 import { ensureNoDeniedModels, validateRouterConfig } from "../policy/config.js";
 import { rankModels } from "../ranking/index.js";
 import { TelemetryStore } from "../telemetry/index.js";
-import type { CatalogModel, DispatchDecision, RouterConfig, WorkerLevel } from "../types/index.js";
+import type { CatalogFetchResult, CatalogModel, DataClassification, DispatchDecision, RouterConfig, WorkerLevel } from "../types/index.js";
 
 export interface DispatchRequest {
   task: string;
   prompt: string;
   configPath?: string;
   taskPrompt?: string;
+  data_classification?: DataClassification;
 }
+
+export interface RouterRuntime {
+  healthMonitor?: HealthMonitor;
+  catalogFetcher?: (apiKey?: string) => Promise<CatalogFetchResult>;
+}
+
+export const defaultHealthMonitor = new HealthMonitor();
 
 function getRouteConfig(config: RouterConfig, task: string) {
   return config.routes[task] ?? {
@@ -46,9 +54,9 @@ function resolveDynamicCandidate(candidate: string, catalog: CatalogModel[], rou
 
   const filtered = catalog.filter((model) => {
     if (freeOnly && !isActuallyFreeModel(model)) return false;
-    if (codingOnly && model.coding_score < 70) return false;
-    if (agenticOnly && model.agentic_score < 70) return false;
-    if (intelligenceOnly && model.intelligence_score < 75) return false;
+    if (codingOnly && (model.coding_score === null || model.coding_score < 70)) return false;
+    if (agenticOnly && (model.agentic_score === null || model.agentic_score < 70)) return false;
+    if (intelligenceOnly && (model.intelligence_score === null || model.intelligence_score < 75)) return false;
     if (visionOnly && !model.supports.vision) return false;
     if (route.requires?.includes("tool_calling") && !model.supports.tool_calling) return false;
     if (route.requires?.includes("structured_output") && !model.supports.structured_output) return false;
@@ -60,29 +68,54 @@ function resolveDynamicCandidate(candidate: string, catalog: CatalogModel[], rou
     return candidate;
   }
 
-  const winner = filtered.sort((a, b) => b.coding_score + b.agentic_score + b.intelligence_score - (a.coding_score + a.agentic_score + a.intelligence_score))[0];
+  const averageKnownScores = (model: CatalogModel): number => {
+    const scores = [model.coding_score, model.agentic_score, model.intelligence_score].filter((score): score is number => score !== null);
+    return scores.length > 0 ? scores.reduce((sum, score) => sum + score, 0) / scores.length : Number.NEGATIVE_INFINITY;
+  };
+  const winner = filtered.sort((a, b) => averageKnownScores(b) - averageKnownScores(a))[0];
   return winner?.id ?? candidate;
 }
 
-export async function dispatchTask(request: DispatchRequest): Promise<DispatchDecision> {
+export function assertRequestedModelMatches(requestedModel: string, resolvedModel: string): void {
+  if (requestedModel.trim() !== resolvedModel.trim()) {
+    throw new Error(`Requested model mismatch: requested=${requestedModel}, resolved=${resolvedModel}`);
+  }
+}
+
+export function verifyExecutionResponseModel(requestedModel: string, providerResponseModel: string): void {
+  assertRequestedModelMatches(requestedModel, providerResponseModel);
+}
+
+function isPolicyAllowed(model: CatalogModel, config: RouterConfig): boolean {
+  const author = model.author.toLowerCase();
+  const allowedAuthors = new Set(config.provider_policy.allowed_authors.map((entry) => entry.toLowerCase()));
+  return allowedAuthors.has(author) && !isForbiddenAuthor(author) && !isForbiddenModelId(model.id);
+}
+
+export async function dispatchTask(request: DispatchRequest, runtime: RouterRuntime = {}): Promise<DispatchDecision> {
   const configPath = request.configPath ?? join(cwd(), "config", "model-router.yaml");
   const config = await validateRouterConfig(configPath);
   ensureNoDeniedModels(config);
 
   const route = getRouteConfig(config, request.task);
   const pool = getPoolDefinition(config, route);
-  const routerModelCatalog = await fetchLiveCatalog(process.env.OPENROUTER_API_KEY);
-  const allowedCatalog = routerModelCatalog.filter((entry) => !entry.retention_enabled || !/stealth|dots-studio/i.test(entry.author));
-  const rawCandidates = pool.candidates.map((candidate) => resolveDynamicCandidate(candidate, allowedCatalog, route));
+  const catalogResult = await (runtime.catalogFetcher ?? fetchCatalog)(process.env.OPENROUTER_API_KEY);
+  const classification = request.data_classification ?? "sensitive";
+  const allowedCatalog = filterForbiddenAuthors(catalogResult.catalog)
+    .filter((entry) => isPolicyAllowed(entry, config))
+    .filter((entry) => classification === "public" || (!entry.retention_enabled && !entry.stealth));
+  const rawCandidates = [...new Set(pool.candidates
+    .map((candidate) => resolveDynamicCandidate(candidate, allowedCatalog, route))
+    .filter((candidate) => !isForbiddenAuthor(candidate.split("/")[0]) && !isForbiddenModelId(candidate)))];
 
-  const sensitiveTask = /(payment|ledger|auth|pii|crawler|production)/i.test(request.task) || /(payment|ledger|auth|pii|crawler|production)/i.test(request.prompt);
+  const denied = rawCandidates.filter((candidate) => isForbiddenModelId(candidate) || isForbiddenAuthor(candidate.split("/")[0]) || isForbiddenAuthor(resolveCatalogByModel(candidate, allowedCatalog)?.author));
+  if (denied.length > 0) {
+    throw new Error(`Denied author or model in dispatch candidates: ${denied.join(", ")}`);
+  }
+
   const filteredCandidates = rawCandidates.filter((candidate) => {
     const catalogEntry = resolveCatalogByModel(candidate, allowedCatalog);
-    if (!catalogEntry) return true;
-    if (sensitiveTask && (catalogEntry.retention_enabled || catalogEntry.stealth)) {
-      return false;
-    }
-    return true;
+    return catalogEntry !== undefined && isPolicyAllowed(catalogEntry, config);
   });
 
   const ranked = rankModels(filteredCandidates, allowedCatalog, route, pool, config);
@@ -90,32 +123,53 @@ export async function dispatchTask(request: DispatchRequest): Promise<DispatchDe
     throw new Error(`No valid model candidates available for task: ${request.task}`);
   }
 
-  const healthMonitor = new HealthMonitor();
+  for (const rankedModel of ranked) {
+    if (isForbiddenAuthor(rankedModel.catalogModel?.author) || isForbiddenModelId(rankedModel.model)) {
+      throw new Error(`Policy recheck failed for candidate: ${rankedModel.model}`);
+    }
+  }
+
+  const healthMonitor = runtime.healthMonitor ?? defaultHealthMonitor;
   const selected = ranked[0];
-  const provider = getProviderName(selected.model);
   const currentLevel = pool.minimum_level;
   const modelLevel = currentLevel as WorkerLevel;
   const checkpoint = createHandoffCheckpoint(request.task, {
     task_spec: `Route task ${request.task} through policy-aware model selection`,
     decisions: [`Selected ${selected.model} from ${route.worker_pool}`],
     owned_files: ["packages/ai-router"],
-    tests_run: ["vitest run"],
+    tests_run: [],
     failures: [],
     remaining_work: ["Tighten provider-specific integration behavior"],
     prohibited_actions: ["No crawler activation", "No production deploy", "No independent model merge or publish"],
   });
 
   if (healthMonitor.isFatigued(selected.model, config)) {
-    const replacement = ranked.find((entry) => canReplaceWorker(modelLevel, entry.level) && !healthMonitor.isFatigued(entry.model, config));
+    const replacement = ranked.slice(1).find((entry) => {
+      const model = entry.catalogModel;
+      return model !== undefined
+        && canReplaceWorker(modelLevel, entry.level)
+        && !healthMonitor.isFatigued(entry.model, config)
+        && isPolicyAllowed(model, config);
+    });
     if (replacement) {
       validateCheckpointShape(checkpoint as unknown as Record<string, unknown>, config);
       const replacementModel = replacement.model;
-      return {
+      const replacementCatalogModel = replacement.catalogModel;
+      if (!replacementCatalogModel || !isPolicyAllowed(replacementCatalogModel, config)) {
+        throw new Error(`Policy recheck failed for replacement: ${replacementModel}`);
+      }
+      const replacementRecord: DispatchDecision = {
         task: request.task,
         route: route.worker_pool,
         requested_model: selected.model,
         resolved_model: replacementModel,
-        provider: getProviderName(replacementModel),
+        provider: replacementCatalogModel.transport_provider,
+        transport_provider: replacementCatalogModel.transport_provider,
+        author: replacementCatalogModel.author,
+        upstream_provider_if_known: replacementCatalogModel.upstream_provider_if_known,
+        catalog_source: replacementCatalogModel.catalog_source,
+        score_source: replacement.score_source,
+        execution_verified: false,
         is_byok: Boolean(process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY),
         ranking_snapshot: ranked.map((entry) => ({ model: entry.model, score: entry.score })),
         latency_ms: 180,
@@ -127,23 +181,36 @@ export async function dispatchTask(request: DispatchRequest): Promise<DispatchDe
         result: "fallback",
         checkpoint: checkpoint as unknown as Record<string, unknown>,
       };
+      const telemetry = new TelemetryStore();
+      telemetry.record(replacementRecord);
+      return replacementRecord;
     }
   }
 
   const checkpointRecord = checkpoint as unknown as Record<string, unknown>;
+  const selectedCatalogModel = selected.catalogModel;
+  if (!selectedCatalogModel || !isPolicyAllowed(selectedCatalogModel, config)) {
+    throw new Error(`Policy recheck failed before dispatch: ${selected.model}`);
+  }
 
   const record: DispatchDecision = {
     task: request.task,
     route: route.worker_pool,
     requested_model: selected.model,
     resolved_model: selected.model,
-    provider,
+    provider: selectedCatalogModel.transport_provider,
+    transport_provider: selectedCatalogModel.transport_provider,
+    author: selectedCatalogModel.author,
+    upstream_provider_if_known: selectedCatalogModel.upstream_provider_if_known,
+    catalog_source: selectedCatalogModel.catalog_source,
+    score_source: selected.score_source,
+    execution_verified: false,
     is_byok: Boolean(process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY),
     ranking_snapshot: ranked.map((entry) => ({ model: entry.model, score: entry.score })),
     latency_ms: selected.catalogModel?.latency_ms ?? 250,
     input_tokens: 1200,
     output_tokens: 600,
-    cost: selected.catalogModel ? selected.catalogModel.output_price + selected.catalogModel.input_price : 0,
+    cost: (selectedCatalogModel.output_price ?? 0) + (selectedCatalogModel.input_price ?? 0),
     attempts: 1,
     cache_hit: false,
     result: "success",
@@ -156,7 +223,7 @@ export async function dispatchTask(request: DispatchRequest): Promise<DispatchDe
 }
 
 export async function getModelList(): Promise<CatalogModel[]> {
-  return fetchLiveCatalog(process.env.OPENROUTER_API_KEY);
+  return (await fetchCatalog(process.env.OPENROUTER_API_KEY)).catalog;
 }
 
 export async function validatePolicy(configPath = join(cwd(), "config", "model-router.yaml")): Promise<void> {
