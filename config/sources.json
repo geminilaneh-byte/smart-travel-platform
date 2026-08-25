@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "policy": {
+    "default_status": "manual_review",
+    "allowed_access": ["official_api", "partner_feed", "affiliate_feed", "public_rss", "public_html_if_permitted"],
+    "forbidden": ["captcha_bypass", "login_bypass", "private_api", "session_reuse", "proxy_evasion"]
+  },
+  "sources": [
+    {"id":"ae.amazon","country":"AE","name":"Amazon UAE","categories":["marketplace"],"base_url":"https://www.amazon.ae/","status":"manual_review"},
+    {"id":"ae.noon","country":"AE","name":"Noon UAE","categories":["marketplace"],"base_url":"https://www.noon.com/uae-en/","status":"manual_review"},
+    {"id":"ae.dubizzle","country":"AE","name":"dubizzle","categories":["classifieds","property","vehicle"],"base_url":"https://www.dubizzle.com/","status":"manual_review"},
+    {"id":"ae.bayut","country":"AE","name":"Bayut","categories":["property"],"base_url":"https://www.bayut.com/","status":"manual_review"},
+    {"id":"ae.propertyfinder","country":"AE","name":"Property Finder UAE","categories":["property"],"base_url":"https://www.propertyfinder.ae/","status":"manual_review"},
+    {"id":"ae.dubicars","country":"AE","name":"DubiCars","categories":["vehicle"],"base_url":"https://www.dubicars.com/","status":"manual_review"},
+    {"id":"ae.namshi","country":"AE","name":"Namshi","categories":["fashion"],"base_url":"https://www.namshi.com/uae-en/","status":"manual_review"},
+    {"id":"ae.sharafdg","country":"AE","name":"Sharaf DG","categories":["electronics"],"base_url":"https://uae.sharafdg.com/","status":"manual_review"},
+    {"id":"ae.carrefour","country":"AE","name":"Carrefour UAE","categories":["grocery","marketplace"],"base_url":"https://www.carrefouruae.com/","status":"manual_review"},
+
+    {"id":"tr.trendyol","country":"TR","name":"Trendyol","categories":["marketplace"],"base_url":"https://www.trendyol.com/","status":"manual_review"},
+    {"id":"tr.hepsiburada","country":"TR","name":"Hepsiburada","categories":["marketplace"],"base_url":"https://www.hepsiburada.com/","status":"manual_review"},
+    {"id":"tr.amazon","country":"TR","name":"Amazon Turkey","categories":["marketplace"],"base_url":"https://www.amazon.com.tr/","status":"manual_review"},
+    {"id":"tr.n11","country":"TR","name":"n11","categories":["marketplace"],"base_url":"https://www.n11.com/","status":"manual_review"},
+    {"id":"tr.sahibinden","country":"TR","name":"sahibinden.com","categories":["classifieds","property","vehicle"],"base_url":"https://www.sahibinden.com/","status":"manual_review"},
+    {"id":"tr.arabam","country":"TR","name":"Arabam","categories":["vehicle"],"base_url":"https://www.arabam.com/","status":"manual_review"},
+    {"id":"tr.hepsiemlak","country":"TR","name":"Hepsiemlak","categories":["property"],"base_url":"https://www.hepsiemlak.com/","status":"manual_review"},
+    {"id":"tr.emlakjet","country":"TR","name":"Emlakjet","categories":["property"],"base_url":"https://www.emlakjet.com/","status":"manual_review"},
+
+    {"id":"ir.torob","country":"IR","name":"Torob","categories":["price_comparison"],"base_url":"https://torob.com/","status":"manual_review"},
+    {"id":"ir.digikala","country":"IR","name":"Digikala","categories":["marketplace"],"base_url":"https://www.digikala.com/","status":"manual_review"},
+    {"id":"ir.basalam","country":"IR","name":"Basalam","categories":["marketplace"],"base_url":"https://basalam.com/","status":"manual_review"},
+    {"id":"ir.esam","country":"IR","name":"Esam","categories":["auction","classifieds"],"base_url":"https://esam.ir/","status":"manual_review"},
+    {"id":"ir.divar","country":"IR","name":"Divar","categories":["classifieds","property","vehicle"],"base_url":"https://divar.ir/","status":"manual_review"},
+    {"id":"ir.sheypoor","country":"IR","name":"Sheypoor","categories":["classifieds","property","vehicle"],"base_url":"https://www.sheypoor.com/","status":"manual_review"},
+    {"id":"ir.bama","country":"IR","name":"Bama","categories":["vehicle"],"base_url":"https://bama.ir/","status":"manual_review"},
+    {"id":"ir.jabama","country":"IR","name":"Jabama","categories":["accommodation"],"base_url":"https://www.jabama.com/","status":"manual_review"},
+    {"id":"ir.otaghak","country":"IR","name":"Otaghak","categories":["accommodation"],"base_url":"https://www.otaghak.com/","status":"manual_review"},
+
+    {"id":"sa.noon","country":"SA","name":"Noon Saudi","categories":["marketplace"],"base_url":"https://www.noon.com/saudi-en/","status":"manual_review"},
+    {"id":"sa.amazon","country":"SA","name":"Amazon Saudi","categories":["marketplace"],"base_url":"https://www.amazon.sa/","status":"manual_review"},
+    {"id":"sa.jarir","country":"SA","name":"Jarir","categories":["electronics","books"],"base_url":"https://www.jarir.com/sa-en/","status":"manual_review"},
+    {"id":"sa.extra","country":"SA","name":"eXtra","categories":["electronics"],"base_url":"https://www.extra.com/","status":"manual_review"},
+    {"id":"sa.haraj","country":"SA","name":"Haraj","categories":["classifieds","vehicle","property"],"base_url":"https://haraj.com.sa/","status":"manual_review"},
+    {"id":"sa.aqar","country":"SA","name":"Aqar","categories":["property"],"base_url":"https://sa.aqar.fm/","status":"manual_review"},
+    {"id":"sa.syarah","country":"SA","name":"Syarah","categories":["vehicle"],"base_url":"https://syarah.com/","status":"manual_review"},
+    {"id":"sa.opensooq","country":"SA","name":"OpenSooq Saudi","categories":["classifieds","vehicle","property"],"base_url":"https://sa.opensooq.com/","status":"manual_review"},
+
+    {"id":"iq.miswag","country":"IQ","name":"Miswag","categories":["marketplace"],"base_url":"https://miswag.com/","status":"manual_review"},
+    {"id":"iq.simma","country":"IQ","name":"Simma","categories":["marketplace"],"base_url":"https://www.simma.io/","status":"manual_review"},
+    {"id":"iq.elryan","country":"IQ","name":"Elryan","categories":["marketplace"],"base_url":"https://www.elryan.com/","status":"manual_review"},
+    {"id":"iq.opensooq","country":"IQ","name":"OpenSooq Iraq","categories":["classifieds","property","vehicle"],"base_url":"https://iq.opensooq.com/","status":"manual_review"}
+  ]
+}

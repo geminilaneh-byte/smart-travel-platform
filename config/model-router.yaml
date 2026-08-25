@@ -1,0 +1,106 @@
+version: 2
+defaults:
+  orchestrator: commander
+  provider_neutral: true
+  selection_strategy: capability_rank_health_then_cost
+  free_first: true
+  reasoning: medium
+  timeout_ms: 180000
+  max_retries: 2
+  require_structured_output: true
+  log_router_metadata: true
+
+provider_policy:
+  allowed_authors: [google, qwen, z-ai, deepseek, mistralai, meta-llama, nousresearch, nvidia, moonshotai, x-ai, stealth, dots-studio]
+  denied_authors: [openai, anthropic]
+  denied_model_patterns: ["openai/*", "anthropic/*", "*/claude-*", "*/codex-*"]
+  denied_until: user_explicitly_reenables
+  enforcement: fail_closed
+
+privacy:
+  secrets_to_models: never
+  pii_mode: redact
+  external_provider_default: {data_collection: deny, zdr: true}
+
+routes:
+  architecture: {worker_pool: strategic, reviewer_pool: strategic_reviewer, reasoning: high, human_approval: true}
+  payment_security: {worker_pool: strategic, reviewer_pool: strategic_reviewer, reasoning: xhigh, human_approval: true, repository_write: patch_only}
+  coding_general: {worker_pool: senior, reasoning: medium, fallback_pool: senior}
+  frontend_3d: {worker_pool: vision_senior, reviewer_pool: vision_senior, reasoning: high, requires: [vision, tool_calling]}
+  crawl_connector: {worker_pool: senior, reviewer_pool: strategic_reviewer, reasoning: high, human_approval: true}
+  extraction: {worker_pool: utility, reasoning: low}
+  translation: {worker_pool: utility, allowed_authors: [google, qwen, mistralai, meta-llama, z-ai]}
+  research_current: {worker_pool: research, reviewer_pool: strategic_reviewer, requires: [web_search, citations]}
+
+worker_pools:
+  squad_leaders_non_sensitive:
+    minimum_level: L4
+    required: [tool_calling, long_context]
+    price_policy: free_only
+    candidates: [stealth/ox-alpha, "dots-studio/dots-3-note-preview:free", "dynamic:openrouter_free_agentic_top", "dynamic:openrouter_free_coding_top"]
+    selection_sort: [agentic_score, coding_score, tool_success_rate, availability, context_headroom, latency]
+    data_classification_max: public
+    replacement: same_or_higher_level
+  strategic:
+    minimum_level: L4
+    required: [tool_calling, structured_output, long_context]
+    candidates: [google/gemini-3.7-flash, z-ai/glm-5.3, qwen/qwen3.8-27b, "dynamic:openrouter_allowed_intelligence_top", "dynamic:openrouter_allowed_agentic_top"]
+    leader_pool: squad_leaders_non_sensitive
+    selection_sort: [task_specialty_score, intelligence_score, agentic_score, tool_success_rate, health, cost]
+    replacement: same_or_higher_level
+  strategic_reviewer:
+    minimum_level: L4
+    required: [structured_output, long_context]
+    candidates: [google/gemini-3.7-flash, z-ai/glm-5.3, qwen/qwen3.8-27b, "dynamic:openrouter_allowed_intelligence_top"]
+    independence: different_model_family_and_provider
+    replacement: same_or_higher_level
+  senior:
+    minimum_level: L3
+    required: [tool_calling, structured_output]
+    candidates: [qwen/qwen3.8-27b, google/gemini-3.7-flash, z-ai/glm-5.3, "dynamic:openrouter_allowed_coding_top", "dynamic:openrouter_free_coding_top"]
+    leader_pool: squad_leaders_non_sensitive
+    replacement: same_or_higher_level
+  vision_senior:
+    minimum_level: L3
+    required: [vision, tool_calling]
+    candidates: [google/gemini-3.7-flash, qwen/qwen3.8-27b, "dynamic:openrouter_allowed_vision_top"]
+    replacement: same_or_higher_level
+  production:
+    minimum_level: L2
+    required: [tool_calling]
+    candidates: [google/gemini-3.7-flash, "dynamic:openrouter_free_agentic_top", "dynamic:openrouter_allowed_coding_top"]
+    replacement: same_or_higher_level
+  utility:
+    minimum_level: L1
+    required: [structured_output]
+    candidates: [google/gemini-3.7-flash, "dots-studio/dots-3-note-preview:free", "dynamic:openrouter_free_price_top"]
+    replacement: same_or_higher_level
+  research:
+    minimum_level: L3
+    required: [long_context]
+    candidates: [google/gemini-3.7-flash, qwen/qwen3.8-27b, z-ai/glm-5.3, "dynamic:openrouter_allowed_intelligence_top"]
+    selection_sort: [task_specialty_score, citation_quality, intelligence_score, context_headroom, cost]
+    replacement: same_or_higher_level
+
+live_catalog_policy:
+  refresh_seconds: 900
+  endpoint: openrouter_models_api
+  filters: {exclude_denied_authors: true, require_live_endpoint: true, require_requested_parameters: true}
+  ranking_dimensions: [intelligence-high-to-low, coding-high-to-low, agentic-high-to-low, design-arena-elo-high-to-low, throughput-high-to-low, latency-low-to-high]
+  free_definition: {prompt_price_per_million: 0, completion_price_per_million: 0}
+  expiration_handling: remove_before_dispatch
+
+guards:
+  - {id: no_subscription_pooling, rule: Web subscriptions are not treated as API credit pools.}
+  - {id: no_mid_patch_switch, rule: A replacement starts from a complete checkpoint with patch and tests.}
+  - {id: high_risk_review, match: [payments, ledger, auth, pii, crawler_activation, production], require: [independent_review, human_approval, green_ci]}
+  - {id: cost_cap, rule: Reject requests above the task budget before dispatch.}
+  - {id: banned_authors, rule: Reject every denied author before auto-routing fallback review or utility dispatch.}
+  - {id: free_is_dynamic, rule: Verify zero input and output price from the live catalog; never infer free status from a model name.}
+  - {id: stealth_data_boundary, rule: Stealth or retention-enabled models receive no secrets PII payment data private customer data or unreleased strategy.}
+
+health_policy: {context_soft_limit_percent: 70, context_hard_limit_percent: 80, consecutive_invalid_outputs: 2, consecutive_provider_errors: 2, latency_slo_multiplier: 1.5, cooldown_seconds: 300, circuit_breaker_seconds: 900}
+handoff_checkpoint:
+  required_fields: [task_spec, acceptance_criteria, decisions, owned_files, current_diff, tests_run, failures, remaining_work, prohibited_actions]
+telemetry:
+  fields: [task_id, route, requested_model, resolved_model, provider, is_byok, ranking_snapshot, latency_ms, input_tokens, output_tokens, cost, attempts, cache_hit, result]
