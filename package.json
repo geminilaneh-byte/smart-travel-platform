@@ -1,0 +1,30 @@
+{
+  "name": "smart-travel-platform",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "ai:models": "tsx packages/ai-router/src/cli/models.ts",
+    "ai:doctor": "tsx packages/ai-router/src/cli/doctor.ts",
+    "ai:route": "tsx packages/ai-router/src/cli/route.ts",
+    "ai:validate-policy": "tsx packages/ai-router/src/cli/validate-policy.ts",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint . --ext .ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.17.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.4",
+    "yaml": "^2.8.0",
+    "zod": "^3.24.0"
+  }
+}
