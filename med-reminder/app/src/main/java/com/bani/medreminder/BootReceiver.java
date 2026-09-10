@@ -1,0 +1,1 @@
+package com.bani.medreminder; import android.content.*; public class BootReceiver extends BroadcastReceiver { @Override public void onReceive(Context c,Intent i){ for(Med m:new Db(c).all()) AlarmScheduler.schedule(c,m); } }
