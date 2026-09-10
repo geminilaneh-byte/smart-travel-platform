@@ -1,9 +1,11 @@
-name: Build Med Reminder APK
+name: Build Med Reminder AAB
 on:
   push:
     branches: [ med-reminder-build ]
     paths: [ 'med-reminder/**', '.github/workflows/build-med-reminder-apk.yml' ]
   workflow_dispatch:
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,11 +18,18 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build APK
+      - name: Build release bundle and APK
         working-directory: med-reminder
-        run: gradle :app:assembleDebug --stacktrace
-      - uses: actions/upload-artifact@v4
-        with:
-          name: med-reminder-apk
-          path: med-reminder/app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+        run: |
+          gradle :app:bundleRelease :app:assembleRelease --stacktrace
+      - name: Publish unsigned build assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="med-reminder-build-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" \
+            med-reminder/app/build/outputs/bundle/release/app-release.aab#app-release-unsigned.aab \
+            med-reminder/app/build/outputs/apk/release/app-release-unsigned.apk#app-release-unsigned.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Med Reminder Build ${GITHUB_RUN_NUMBER}" \
+            --notes "Unsigned release build for local signing and Google Play Internal Testing."
