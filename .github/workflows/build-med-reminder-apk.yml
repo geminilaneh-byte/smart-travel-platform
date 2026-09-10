@@ -1,4 +1,4 @@
-name: Build Med Reminder Release
+name: Build Med Reminder Signed Release
 on:
   push:
     branches: [ med-reminder-build ]
@@ -22,20 +22,78 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build unsigned release APK and AAB
-        working-directory: med-reminder
-        run: gradle :app:assembleRelease :app:bundleRelease --stacktrace
+      - name: Generate temporary Android release key
+        run: |
+          mkdir -p "$RUNNER_TEMP/med-signing"
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/med-signing/release.jks" \
+            -storepass "BaniBuild2026!" \
+            -keypass "BaniBuild2026!" \
+            -alias medrelease \
+            -keyalg RSA \
+            -keysize 3072 \
+            -validity 10000 \
+            -dname "CN=BANI Med Reminder, OU=BANI Apps, O=BANI, L=Local, ST=Local, C=NL"
 
-      - name: Collect outputs
+      - name: Configure release signing
+        working-directory: med-reminder
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/build.gradle')
+          s = p.read_text()
+          marker = "\n}"
+          insert = '''
+
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('BANI_KEYSTORE'))
+            storePassword 'BaniBuild2026!'
+            keyAlias 'medrelease'
+            keyPassword 'BaniBuild2026!'
+            enableV1Signing true
+            enableV2Signing true
+            enableV3Signing true
+            enableV4Signing true
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+'''
+          pos = s.rfind(marker)
+          if pos == -1:
+              raise SystemExit('android block end not found')
+          s = s[:pos] + insert + s[pos:]
+          p.write_text(s)
+          PY
+        env:
+          BANI_KEYSTORE: ${{ runner.temp }}/med-signing/release.jks
+
+      - name: Build signed release APK
+        working-directory: med-reminder
+        env:
+          BANI_KEYSTORE: ${{ runner.temp }}/med-signing/release.jks
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Verify APK signature
+        run: |
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --verbose --print-certs med-reminder/app/build/outputs/apk/release/app-release.apk
+
+      - name: Collect installable APK
         run: |
           mkdir -p release-out
-          cp med-reminder/app/build/outputs/apk/release/app-release-unsigned.apk release-out/
-          cp med-reminder/app/build/outputs/bundle/release/app-release.aab release-out/app-release-unsigned.aab
-          sha256sum release-out/* > release-out/SHA256SUMS.txt
+          cp med-reminder/app/build/outputs/apk/release/app-release.apk release-out/BANI-Med-Reminder-v1.0-installable.apk
+          sha256sum release-out/BANI-Med-Reminder-v1.0-installable.apk > release-out/SHA256SUMS.txt
 
       - uses: actions/upload-artifact@v4
         with:
-          name: med-reminder-release-unsigned
+          name: med-reminder-installable-release
           path: release-out/
           if-no-files-found: error
           retention-days: 7
